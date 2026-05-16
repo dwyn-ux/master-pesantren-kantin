@@ -1,0 +1,20 @@
+node_modules/
+dist/
+release/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local SQLite (jangan commit data lokal)
+*.db
+*.sqlite
+*.sqlite3
+local-data/
+
+# Build artifacts
+*.exe
+build/icon.ico

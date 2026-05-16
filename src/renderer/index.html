@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pesantren Kantin</title>
+    <link rel="stylesheet" href="./css/app.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+        .glass { background: rgba(30, 41, 59, 0.6); backdrop-filter: blur(8px); }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col" x-data="app()" x-cloak>
+
+    <!-- ═════════ Splash / Loading ═════════ -->
+    <div x-show="state === 'splash'" class="flex-1 flex items-center justify-center" x-transition>
+        <div class="text-center">
+            <div class="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                <i class="fa-solid fa-cash-register text-white text-3xl"></i>
+            </div>
+            <h1 class="text-2xl font-bold">Pesantren Kantin</h1>
+            <p class="text-slate-400 text-sm mt-2">Memuat aplikasi...</p>
+            <div class="mt-4">
+                <i class="fa-solid fa-circle-notch fa-spin text-indigo-400 text-xl"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═════════ Setup screen (input server URL + token) ═════════ -->
+    <div x-show="state === 'setup'" class="flex-1 flex items-center justify-center px-6" x-transition>
+        <div class="glass max-w-md w-full rounded-2xl p-8 shadow-2xl border border-slate-700">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 mx-auto mb-3 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                    <i class="fa-solid fa-link text-white text-2xl"></i>
+                </div>
+                <h2 class="text-xl font-bold">Hubungkan ke Server</h2>
+                <p class="text-slate-400 text-sm mt-1">Masukkan URL server pesantren dan token device</p>
+            </div>
+
+            <form @submit.prevent="setupDevice()" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1.5">URL Server</label>
+                    <input type="url" x-model="setup.url" required
+                           placeholder="https://pondok.example.id atau http://192.168.1.10"
+                           class="w-full px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-300 mb-1.5">Token Device</label>
+                    <input type="text" x-model="setup.token" required
+                           placeholder="Token API dari menu Device Kantin di admin"
+                           class="w-full px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+
+                <template x-if="setup.error">
+                    <div class="p-3 bg-red-900/30 border border-red-700 rounded-lg text-sm text-red-300">
+                        <i class="fa-solid fa-circle-exclamation mr-1"></i>
+                        <span x-text="setup.error"></span>
+                    </div>
+                </template>
+                <template x-if="setup.success">
+                    <div class="p-3 bg-green-900/30 border border-green-700 rounded-lg text-sm text-green-300">
+                        <i class="fa-solid fa-circle-check mr-1"></i>
+                        Terverifikasi: <strong x-text="setup.success"></strong>
+                    </div>
+                </template>
+
+                <button type="submit" :disabled="setup.loading"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-lg transition">
+                    <span x-show="!setup.loading"><i class="fa-solid fa-plug mr-1"></i> Hubungkan</span>
+                    <span x-show="setup.loading"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Menghubungkan...</span>
+                </button>
+            </form>
+
+            <p class="text-xs text-slate-500 text-center mt-4">
+                Token didapat dari admin pesantren di menu <strong>Device Kantin Offline</strong>
+            </p>
+        </div>
+    </div>
+
+    <!-- ═════════ Main POS ═════════ -->
+    <template x-if="state === 'pos'">
+        <div class="flex-1 flex flex-col" @keydown.window="handleShortcut($event)">
+            <!-- Header -->
+            <header class="glass border-b border-slate-700 px-6 py-3 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                        <i class="fa-solid fa-cash-register text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-sm" x-text="device.outlet || 'Kantin'"></h1>
+                        <p class="text-xs text-slate-400" x-text="device.code"></p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 text-xs text-slate-400">
+                    <span><i class="fa-solid fa-users"></i> <span x-text="stats.santri"></span></span>
+                    <span><i class="fa-solid fa-box"></i> <span x-text="stats.produk"></span></span>
+                    <span class="text-amber-400" x-show="stats.transaksi_pending > 0">
+                        <i class="fa-solid fa-arrow-up-from-bracket"></i>
+                        <span x-text="stats.transaksi_pending"></span> pending
+                    </span>
+                    <button @click="syncNow()" :disabled="syncing"
+                            class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded text-white">
+                        <i :class="syncing ? 'fa-circle-notch fa-spin' : 'fa-rotate'" class="fa-solid mr-1"></i>
+                        Sync
+                    </button>
+                    <button @click="logout()" class="text-slate-400 hover:text-red-400" title="Logout / setup ulang">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Body: 2 panels (left search/produk, right cart) -->
+            <div class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 p-4 overflow-hidden">
+
+                <!-- Left: Santri & Produk -->
+                <div class="lg:col-span-2 flex flex-col gap-4 overflow-hidden">
+                    <!-- Santri input -->
+                    <div class="glass rounded-xl p-4 border border-slate-700">
+                        <label class="block text-xs uppercase tracking-wider text-slate-400 mb-2">
+                            <i class="fa-solid fa-id-card-clip"></i> Scan / Cari Santri
+                            <span class="float-right text-slate-500">(F1)</span>
+                        </label>
+                        <input type="text"
+                               x-ref="santriInput"
+                               x-model="santriQuery"
+                               @keydown.enter.prevent="onSantriEnter()"
+                               placeholder="Tap kartu RFID, scan fingerprint, atau ketik NIS / nama"
+                               class="w-full px-4 py-3 bg-slate-900/50 border border-slate-700 rounded-lg text-base focus:ring-2 focus:ring-indigo-500 outline-none">
+
+                        <template x-if="selectedSantri">
+                            <div class="mt-3 p-3 bg-indigo-900/30 border border-indigo-700 rounded-lg flex items-center justify-between">
+                                <div>
+                                    <div class="font-bold text-base" x-text="selectedSantri.nama"></div>
+                                    <div class="text-xs text-slate-400" x-text="`${selectedSantri.nis || '-'} · ${selectedSantri.kelas || '-'}`"></div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs text-slate-400">Saldo</div>
+                                    <div class="text-lg font-bold" :class="selectedSantri.saldo >= cartTotal ? 'text-green-400' : 'text-red-400'">
+                                        Rp <span x-text="(selectedSantri.saldo || 0).toLocaleString('id-ID')"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <template x-if="santriSearchResults.length > 0">
+                            <div class="mt-2 max-h-48 overflow-y-auto bg-slate-800 rounded border border-slate-700 divide-y divide-slate-700">
+                                <template x-for="s in santriSearchResults" :key="s.id">
+                                    <button @click="selectSantri(s)" class="w-full px-3 py-2 text-left text-sm hover:bg-slate-700">
+                                        <span class="font-medium" x-text="s.nama"></span>
+                                        <span class="text-xs text-slate-400 ml-2" x-text="`${s.nis} · ${s.kelas || '-'}`"></span>
+                                    </button>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- Produk grid -->
+                    <div class="glass rounded-xl p-4 border border-slate-700 flex-1 overflow-hidden flex flex-col">
+                        <div class="flex items-center gap-3 mb-3">
+                            <label class="text-xs uppercase tracking-wider text-slate-400 flex-shrink-0">
+                                <i class="fa-solid fa-bag-shopping"></i> Produk
+                            </label>
+                            <input type="text" x-model="produkQuery" @input.debounce.300ms="loadProduk()"
+                                   placeholder="Cari produk / scan barcode (F2)"
+                                   x-ref="produkInput"
+                                   class="flex-1 px-3 py-1.5 bg-slate-900/50 border border-slate-700 rounded text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                            <span class="text-xs text-slate-500 flex-shrink-0">(F2)</span>
+                        </div>
+
+                        <div class="flex-1 overflow-y-auto">
+                            <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                <template x-for="p in produkList" :key="p.id">
+                                    <button @click="addToCart(p)"
+                                            class="bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-indigo-500 rounded-lg p-3 text-left transition group">
+                                        <div class="font-medium text-sm truncate" x-text="p.nama"></div>
+                                        <div class="text-xs text-slate-400 mt-1">
+                                            Stok: <span x-text="p.stok || 0"></span>
+                                        </div>
+                                        <div class="text-base font-bold text-green-400 mt-1">
+                                            Rp <span x-text="p.harga.toLocaleString('id-ID')"></span>
+                                        </div>
+                                    </button>
+                                </template>
+                            </div>
+                            <template x-if="produkList.length === 0">
+                                <div class="text-center text-slate-500 py-8 text-sm">
+                                    <i class="fa-solid fa-box-open text-3xl mb-2"></i>
+                                    <p>Tidak ada produk. Sync data master dulu.</p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Cart -->
+                <div class="glass rounded-xl border border-slate-700 flex flex-col overflow-hidden">
+                    <div class="p-4 border-b border-slate-700">
+                        <div class="flex items-center justify-between">
+                            <h3 class="font-bold text-sm">
+                                <i class="fa-solid fa-cart-shopping mr-1"></i> Keranjang
+                            </h3>
+                            <button @click="clearCart()" x-show="cart.length > 0"
+                                    class="text-xs text-red-400 hover:text-red-300">
+                                <i class="fa-solid fa-trash"></i> Kosongkan
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-3 space-y-2">
+                        <template x-if="cart.length === 0">
+                            <div class="text-center text-slate-500 py-8 text-sm">
+                                <i class="fa-solid fa-cart-arrow-down text-3xl mb-2"></i>
+                                <p>Keranjang kosong</p>
+                            </div>
+                        </template>
+
+                        <template x-for="(item, idx) in cart" :key="idx">
+                            <div class="bg-slate-800/50 rounded-lg p-2 border border-slate-700">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-sm font-medium truncate" x-text="item.nama"></div>
+                                        <div class="text-xs text-slate-400">
+                                            Rp <span x-text="item.harga.toLocaleString('id-ID')"></span>
+                                        </div>
+                                    </div>
+                                    <button @click="removeItem(idx)" class="text-red-400 hover:text-red-300 text-xs">
+                                        <i class="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+                                <div class="flex items-center gap-2 mt-2">
+                                    <button @click="changeQty(idx, -1)" class="w-7 h-7 bg-slate-700 rounded text-sm">−</button>
+                                    <input type="number" min="1" x-model.number="item.qty" @change="enforceQty(idx)"
+                                           class="w-14 text-center bg-slate-900 border border-slate-700 rounded py-1 text-sm">
+                                    <button @click="changeQty(idx, 1)" class="w-7 h-7 bg-slate-700 rounded text-sm">+</button>
+                                    <div class="flex-1 text-right text-sm font-bold text-green-400">
+                                        Rp <span x-text="(item.harga * item.qty).toLocaleString('id-ID')"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="p-4 border-t border-slate-700 space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-slate-400">Total Item</span>
+                            <span x-text="cart.reduce((s, i) => s + i.qty, 0)"></span>
+                        </div>
+                        <div class="flex justify-between text-base font-bold">
+                            <span>Total</span>
+                            <span class="text-green-400">Rp <span x-text="cartTotal.toLocaleString('id-ID')"></span></span>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 mt-3">
+                            <button @click="metode = 'saldo'"
+                                    :class="metode === 'saldo' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                    class="px-3 py-2 rounded text-sm font-medium transition">
+                                <i class="fa-solid fa-wallet"></i> Saldo
+                            </button>
+                            <button @click="metode = 'tunai'"
+                                    :class="metode === 'tunai' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+                                    class="px-3 py-2 rounded text-sm font-medium transition">
+                                <i class="fa-solid fa-money-bill"></i> Tunai
+                            </button>
+                        </div>
+
+                        <button @click="checkout()" :disabled="cart.length === 0 || (metode === 'saldo' && !selectedSantri) || processing"
+                                class="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-lg transition mt-2">
+                            <i class="fa-solid fa-check"></i> BAYAR (F12)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Toast notification -->
+            <template x-if="toast.show">
+                <div class="fixed bottom-6 right-6 max-w-sm shadow-2xl z-50"
+                     :class="toast.type === 'success' ? 'bg-green-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-slate-700'"
+                     style="border-radius: 12px;">
+                    <div class="px-4 py-3 text-white font-medium flex items-center gap-2">
+                        <i class="fa-solid"
+                           :class="toast.type === 'success' ? 'fa-circle-check' : toast.type === 'error' ? 'fa-circle-exclamation' : 'fa-circle-info'"></i>
+                        <span x-text="toast.message"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </template>
+
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>
